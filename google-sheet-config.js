@@ -72,9 +72,9 @@ const DEFAULT_INITIAL_DATA = {
 };
 
 // --------------------------------------------------------------------------
-// GOOGLE DRIVE FILE UPLOADER HELPER (Base64 -> Apps Script -> Drive URL)
+// GOOGLE DRIVE FILE UPLOADER & DELETER HELPERS
 // --------------------------------------------------------------------------
-async function uploadFileToGoogleDrive(file, folderType = "photos") {
+async function uploadFileToGoogleDrive(file, folderType = "photos", targetClass = "") {
   if (!file) return Promise.reject("No file provided");
 
   if (GOOGLE_SHEET_SCRIPT_URL && GOOGLE_SHEET_SCRIPT_URL !== "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL") {
@@ -90,7 +90,9 @@ async function uploadFileToGoogleDrive(file, folderType = "photos") {
         action: "uploadFileDrive",
         fileName: file.name,
         mimeType: file.type,
-        fileData: base64Data
+        fileData: base64Data,
+        category: folderType,
+        targetClass: targetClass
       };
 
       const response = await fetch(GOOGLE_SHEET_SCRIPT_URL, {
@@ -119,7 +121,23 @@ async function uploadFileToGoogleDrive(file, folderType = "photos") {
   });
 }
 
+async function deleteFileFromGoogleDrive(fileUrlOrId) {
+  if (!fileUrlOrId || !GOOGLE_SHEET_SCRIPT_URL || GOOGLE_SHEET_SCRIPT_URL === "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL") return;
+  try {
+    fetch(GOOGLE_SHEET_SCRIPT_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "deleteFileDrive", fileUrl: fileUrlOrId })
+    });
+    console.log("🗑️ Delete request sent to Drive for file:", fileUrlOrId);
+  } catch (e) {
+    console.warn("⚠️ Error deleting file from Drive:", e);
+  }
+}
+
 window.uploadFileToGoogleDrive = uploadFileToGoogleDrive;
+window.deleteFileFromGoogleDrive = deleteFileFromGoogleDrive;
 
 // --------------------------------------------------------------------------
 // GOOGLE SHEETS STORE ENGINE CLASS
@@ -134,43 +152,47 @@ class StoreEngine {
       saved = null;
     }
     this.memoryData = saved || JSON.parse(JSON.stringify(DEFAULT_INITIAL_DATA));
+    this.cleanUnsplashUrls();
     this.initStore();
+  }
+
+  cleanUnsplashUrls() {
+    ['teachers', 'students'].forEach(coll => {
+      if (this.memoryData[coll] && Array.isArray(this.memoryData[coll])) {
+        this.memoryData[coll].forEach(item => {
+          if (item.photoUrl && item.photoUrl.includes('unsplash')) {
+            item.photoUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(item.name || 'User')}&background=0d2b6b&color=fff&bold=true`;
+          }
+        });
+      }
+    });
   }
 
   async initStore() {
     if (GOOGLE_SHEET_SCRIPT_URL && GOOGLE_SHEET_SCRIPT_URL !== "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL") {
       try {
-        const response = await fetch(`${GOOGLE_SHEET_SCRIPT_URL}?action=getInitialData`);
+        // Cache-busting URL parameter to guarantee 100% fresh live data from Google Sheets
+        const response = await fetch(`${GOOGLE_SHEET_SCRIPT_URL}?action=getInitialData&t=${Date.now()}`);
         const resJson = await response.json();
         if (resJson && resJson.success) {
-          const mergeItems = (key, idProp = 'id') => {
-            if (resJson[key] && Array.isArray(resJson[key])) {
-              const remoteItems = resJson[key];
-              const localItems = this.memoryData[key] || [];
-              const combined = [...remoteItems];
-              localItems.forEach(loc => {
-                const exists = combined.some(rem => String(rem[idProp] || rem.id) === String(loc[idProp] || loc.id));
-                if (!exists) combined.push(loc);
-              });
-              this.memoryData[key] = combined;
-            }
-          };
-
-          mergeItems('teachers', 'username');
-          mergeItems('students', 'studentId');
-          mergeItems('questions', 'id');
-          mergeItems('materials', 'id');
-          mergeItems('tests', 'id');
-          mergeItems('studentScores', 'id');
+          this.memoryData.teachers = (resJson.teachers && resJson.teachers.length > 0) ? resJson.teachers : HARDCODED_TEACHERS;
+          this.memoryData.students = resJson.students || [];
+          this.memoryData.questions = resJson.questions || [];
+          this.memoryData.materials = resJson.materials || [];
+          this.memoryData.tests = resJson.tests || [];
+          this.memoryData.studentScores = resJson.studentScores || [];
           
-          localStorage.setItem(this.key, JSON.stringify(this.memoryData));
+          this.cleanUnsplashUrls();
+          try {
+            localStorage.setItem(this.key, JSON.stringify(this.memoryData));
+          } catch(e){}
 
           if (window.App && typeof window.App.render === 'function') {
             window.App.render();
           }
         }
       } catch (e) {
-        console.warn("⚠️ Google Sheet API fetch error, using local cache fallback:", e);
+        console.warn("⚠️ Google Sheet API fetch error:", e);
       }
     }
   }
@@ -218,6 +240,13 @@ class StoreEngine {
 
   deleteItem(collection, id) {
     if (!this.memoryData[collection]) return;
+    const item = this.memoryData[collection].find(i => i.id === id);
+    if (item) {
+      const fileUrl = item.url || item.pdfUrl || item.photoUrl;
+      if (fileUrl && (fileUrl.includes("drive.google.com") || fileUrl.includes("googleusercontent.com"))) {
+        deleteFileFromGoogleDrive(fileUrl);
+      }
+    }
     this.memoryData[collection] = this.memoryData[collection].filter(i => i.id !== id);
     this.saveData(this.memoryData);
   }
@@ -305,6 +334,10 @@ class StoreEngine {
 
   deleteTeacher(id) {
     if (!this.memoryData.teachers) return;
+    const teacher = this.memoryData.teachers.find(t => t.id === id || t.username === id);
+    if (teacher && teacher.photoUrl && (teacher.photoUrl.includes("drive.google.com") || teacher.photoUrl.includes("googleusercontent.com"))) {
+      deleteFileFromGoogleDrive(teacher.photoUrl);
+    }
     this.memoryData.teachers = this.memoryData.teachers.filter(t => t.id !== id && t.username !== id);
     this.saveData(this.memoryData);
   }
@@ -389,6 +422,10 @@ class StoreEngine {
 
   deleteStudent(studentId) {
     if (!this.memoryData.students) return;
+    const student = this.memoryData.students.find(s => s.studentId === studentId || s.id === studentId);
+    if (student && student.photoUrl && (student.photoUrl.includes("drive.google.com") || student.photoUrl.includes("googleusercontent.com"))) {
+      deleteFileFromGoogleDrive(student.photoUrl);
+    }
     this.memoryData.students = this.memoryData.students.filter(s => s.studentId !== studentId && s.id !== studentId);
     this.saveData(this.memoryData);
   }
