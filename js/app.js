@@ -610,12 +610,12 @@ const App = {
 
   showFullPage(title, htmlContent) {
     const panelHtml = `
-      <div id="appFullPagePanel" style="position: fixed; inset: 0; width: 100vw; height: 100vh; background: #f8fafc; z-index: 1200; display: flex; flex-direction: column; overflow: hidden;">
+      <div id="appFullPagePanel" style="position: fixed; inset: 0; width: 100vw; height: 100vh; background: #f8fafc; z-index: 2500; display: flex; flex-direction: column; overflow: hidden;">
         <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1.25rem; background: var(--board-navy); color: #ffffff; flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.18);">
           <button onclick="App.closeModal()" style="background: rgba(255,255,255,0.15); border: none; color: #ffffff; width: 34px; height: 34px; border-radius: 8px; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">&#8592;</button>
           <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: #ffffff; flex: 1;">${title}</h3>
         </div>
-        <div style="flex: 1; overflow-y: auto; padding: 1.25rem;">
+        <div style="flex: 1; overflow-y: auto; padding: 1.25rem; padding-bottom: 140px;">
           ${htmlContent}
         </div>
       </div>

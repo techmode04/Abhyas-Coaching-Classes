@@ -822,7 +822,13 @@ a:hover {
 
   .main-content {
     padding: 0.85rem;
-    padding-bottom: 75px;
+    padding-bottom: 95px !important;
+  }
+
+  .modal-body {
+    max-height: 78vh;
+    overflow-y: auto;
+    padding-bottom: 80px !important;
   }
 
   .grid-2, .grid-3 {
@@ -857,6 +863,7 @@ a:hover {
 
   .fullpage-exam-body {
     padding: 0.85rem;
+    padding-bottom: 120px !important;
   }
 
   .fullpage-exam-header {

@@ -20,12 +20,49 @@ const TeacherPanel = {
       const file = inputEl.files[0];
       const preview = document.getElementById(previewId);
       const targetInput = document.getElementById(targetInputId);
+      
       if (preview) {
         preview.src = URL.createObjectURL(file);
         preview.style.display = 'block';
       }
+
+      // Compress heavy mobile photos to 300x300 profile size
+      const compressImage = (imageFile) => {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.src = URL.createObjectURL(imageFile);
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const maxDim = 300;
+            let width = img.width;
+            let height = img.height;
+            if (width > height) {
+              if (width > maxDim) {
+                height = Math.round((height * maxDim) / width);
+                width = maxDim;
+              }
+            } else {
+              if (height > maxDim) {
+                width = Math.round((width * maxDim) / height);
+                height = maxDim;
+              }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            canvas.toBlob((blob) => {
+              const compressedFile = new File([blob], imageFile.name, { type: 'image/jpeg' });
+              resolve(compressedFile);
+            }, 'image/jpeg', 0.85);
+          };
+          img.onerror = () => resolve(imageFile);
+        });
+      };
+
       try {
-        const url = await uploadFileToGoogleDrive(file, "photos");
+        const compressedFile = await compressImage(file);
+        const url = await uploadFileToGoogleDrive(compressedFile, "photos");
         if (targetInput) targetInput.value = url;
         if (preview) preview.src = url;
       } catch (e) {
@@ -34,7 +71,7 @@ const TeacherPanel = {
     }
   },
 
-  async handleFileUpload(inputEl, targetInputId, labelId) {
+  async handleFileUpload(inputEl, targetInputId, labelId, category = "notes", targetClass = "") {
     if (inputEl.files && inputEl.files[0]) {
       const file = inputEl.files[0];
       const labelEl = document.getElementById(labelId);
@@ -42,7 +79,11 @@ const TeacherPanel = {
         labelEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin" style="color: var(--board-navy);"></i> Uploading <strong>${file.name}</strong> to Google Drive...`;
       }
       try {
-        const url = await uploadFileToGoogleDrive(file, "documents");
+        if (!targetClass) {
+          const classSelect = document.getElementById('materialClass') || document.getElementById('examClass') || document.getElementById('noteClass');
+          if (classSelect) targetClass = classSelect.value;
+        }
+        const url = await uploadFileToGoogleDrive(file, category, targetClass);
         const targetInput = document.getElementById(targetInputId);
         if (targetInput) targetInput.value = url;
         if (labelEl) {
@@ -850,10 +891,10 @@ const TeacherPanel = {
         <div class="form-group" style="background: #f8fafc; padding: 0.75rem; border-radius: 12px; border: 1px dashed #cbd5e1;">
           <label class="form-label" style="font-size: 0.82rem;"><i class="fa-solid fa-camera"></i> Student Photo Upload</label>
           <div style="display: flex; gap: 0.85rem; align-items: center;">
-            <img id="stdPhotoPreview" src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid var(--board-navy); flex-shrink: 0;">
+            <img id="stdPhotoPreview" src="https://ui-avatars.com/api/?name=New+Student&background=0d2b6b&color=fff&bold=true" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid var(--board-navy); flex-shrink: 0;">
             <div style="flex: 1;">
               <input type="file" accept="image/*" class="form-input" style="padding: 0.35rem; font-size: 0.8rem;" onchange="TeacherPanel.handleImageUpload(this, 'stdPhotoPreview', 'stdPhoto')">
-              <input type="hidden" id="stdPhoto" value="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80">
+              <input type="hidden" id="stdPhoto" value="">
             </div>
           </div>
         </div>
@@ -954,7 +995,7 @@ const TeacherPanel = {
         <div class="form-group" style="background: #f8fafc; padding: 0.85rem; border-radius: 12px; border: 1px dashed #cbd5e1;">
           <label class="form-label"><i class="fa-solid fa-camera"></i> Update Student Photo</label>
           <div style="display: flex; gap: 0.85rem; align-items: center;">
-            <img id="editStdPhotoPreview" src="${s.photoUrl || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80'}" style="width: 54px; height: 54px; border-radius: 50%; object-fit: cover; border: 2px solid var(--board-navy); flex-shrink: 0;">
+            <img id="editStdPhotoPreview" src="${s.photoUrl || ('https://ui-avatars.com/api/?name=' + encodeURIComponent(s.name) + '&background=0d2b6b&color=fff&bold=true')}" style="width: 54px; height: 54px; border-radius: 50%; object-fit: cover; border: 2px solid var(--board-navy); flex-shrink: 0;">
             <div style="flex: 1;">
               <input type="file" accept="image/*" class="form-input" style="padding: 0.4rem; font-size: 0.8rem;" onchange="TeacherPanel.handleImageUpload(this, 'editStdPhotoPreview', 'editStdPhoto')">
               <input type="hidden" id="editStdPhoto" value="${s.photoUrl || ''}">
@@ -1114,7 +1155,7 @@ const TeacherPanel = {
           ${teachers.length === 0 ? '<div class="glass-card" style="padding: 2rem; text-align: center;">No teacher accounts found.</div>' : teachers.map(t => `
             <div class="glass-card item-card" style="padding: 1.1rem; border-left: 4px solid var(--board-navy);">
               <div style="display: flex; gap: 0.85rem; align-items: center; margin-bottom: 0.75rem;">
-                <img src="${t.photoUrl || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80'}" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 2px solid var(--board-navy); flex-shrink: 0;">
+                <img src="${t.photoUrl || ('https://ui-avatars.com/api/?name=' + encodeURIComponent(t.name) + '&background=0d2b6b&color=fff&bold=true')}" style="width: 48px; height: 48px; border-radius: 50%; object-fit: cover; border: 2px solid var(--board-navy); flex-shrink: 0;">
                 <div style="flex: 1;">
                   <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 0.3rem;">
                     <strong style="color: var(--board-navy); font-size: 1rem;">${t.name}</strong>
@@ -1183,10 +1224,10 @@ const TeacherPanel = {
         <div class="form-group" style="background: #f8fafc; padding: 0.85rem; border-radius: 12px; border: 1px dashed #cbd5e1;">
           <label class="form-label"><i class="fa-solid fa-camera"></i> Teacher Photo Upload</label>
           <div style="display: flex; gap: 0.85rem; align-items: center;">
-            <img id="tchPhotoPreview" src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80" style="width: 54px; height: 54px; border-radius: 50%; object-fit: cover; border: 2px solid var(--board-navy); flex-shrink: 0;">
+            <img id="tchPhotoPreview" src="https://ui-avatars.com/api/?name=New+Teacher&background=0d2b6b&color=fff&bold=true" style="width: 54px; height: 54px; border-radius: 50%; object-fit: cover; border: 2px solid var(--board-navy); flex-shrink: 0;">
             <div style="flex: 1;">
               <input type="file" accept="image/*" class="form-input" style="padding: 0.4rem; font-size: 0.8rem;" onchange="TeacherPanel.handleImageUpload(this, 'tchPhotoPreview', 'tchPhoto')">
-              <input type="hidden" id="tchPhoto" value="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80">
+              <input type="hidden" id="tchPhoto" value="">
             </div>
           </div>
         </div>
@@ -1252,7 +1293,7 @@ const TeacherPanel = {
         <div class="form-group" style="background: #f8fafc; padding: 0.85rem; border-radius: 12px; border: 1px dashed #cbd5e1;">
           <label class="form-label"><i class="fa-solid fa-camera"></i> Update Teacher Photo</label>
           <div style="display: flex; gap: 0.85rem; align-items: center;">
-            <img id="editTchPhotoPreview" src="${t.photoUrl || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80'}" style="width: 54px; height: 54px; border-radius: 50%; object-fit: cover; border: 2px solid var(--board-navy); flex-shrink: 0;">
+            <img id="editTchPhotoPreview" src="${t.photoUrl || ('https://ui-avatars.com/api/?name=' + encodeURIComponent(t.name) + '&background=0d2b6b&color=fff&bold=true')}" style="width: 54px; height: 54px; border-radius: 50%; object-fit: cover; border: 2px solid var(--board-navy); flex-shrink: 0;">
             <div style="flex: 1;">
               <input type="file" accept="image/*" class="form-input" style="padding: 0.4rem; font-size: 0.8rem;" onchange="TeacherPanel.handleImageUpload(this, 'editTchPhotoPreview', 'editTchPhoto')">
               <input type="hidden" id="editTchPhoto" value="${t.photoUrl || ''}">
@@ -1993,9 +2034,11 @@ const TeacherPanel = {
           </div>
         </div>
 
-        <button type="submit" class="btn-primary" style="color: #ffffff !important; background: var(--board-navy); width: 100%;">
-          <i class="fa-solid fa-paper-plane"></i> Publish Sunday Exam
-        </button>
+        <div style="margin-top: 1.5rem; margin-bottom: 3rem; padding-bottom: 1.5rem;">
+          <button type="submit" class="btn-primary" style="color: #ffffff !important; background: var(--board-navy); width: 100%; padding: 0.95rem; font-size: 1.05rem; font-weight: 700; border-radius: 12px; box-shadow: 0 4px 15px rgba(13,43,107,0.3);">
+            <i class="fa-solid fa-paper-plane"></i> Publish Sunday Exam
+          </button>
+        </div>
       </form>
     `);
   },
