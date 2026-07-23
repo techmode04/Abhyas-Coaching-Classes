@@ -136,7 +136,8 @@ function uploadFileToDrive(base64Data, fileName, mimeType, category, targetClass
     const file = targetFolder.createFile(fileBlob);
     file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
 
-    const fileUrl = "https://lh3.googleusercontent.com/d/" + file.getId();
+    // Google Drive direct thumbnail URL (works 100% in all browsers & <img> tags)
+    const fileUrl = "https://drive.google.com/thumbnail?id=" + file.getId() + "&sz=w600";
     return { success: true, url: fileUrl, fileId: file.getId() };
   } catch (err) {
     return { success: false, error: err.toString() };

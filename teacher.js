@@ -20,20 +20,14 @@ const TeacherPanel = {
       const file = inputEl.files[0];
       const preview = document.getElementById(previewId);
       const targetInput = document.getElementById(targetInputId);
-      
-      if (preview) {
-        preview.src = URL.createObjectURL(file);
-        preview.style.display = 'block';
-      }
 
-      // Compress heavy mobile photos to 300x300 profile size
       const compressImage = (imageFile) => {
         return new Promise((resolve) => {
           const img = new Image();
           img.src = URL.createObjectURL(imageFile);
           img.onload = () => {
             const canvas = document.createElement('canvas');
-            const maxDim = 300;
+            const maxDim = 350;
             let width = img.width;
             let height = img.height;
             if (width > height) {
@@ -51,27 +45,39 @@ const TeacherPanel = {
             canvas.height = height;
             const ctx = canvas.getContext('2d');
             ctx.drawImage(img, 0, 0, width, height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+
             canvas.toBlob((blob) => {
               const compressedFile = new File([blob], imageFile.name, { type: 'image/jpeg' });
-              resolve(compressedFile);
+              resolve({ compressedFile, dataUrl });
             }, 'image/jpeg', 0.85);
           };
-          img.onerror = () => resolve(imageFile);
+          img.onerror = () => resolve({ compressedFile: imageFile, dataUrl: '' });
         });
       };
 
       try {
-        const compressedFile = await compressImage(file);
-        const url = await uploadFileToGoogleDrive(compressedFile, "photos");
-        if (targetInput) targetInput.value = url;
-        if (preview) preview.src = url;
+        const { compressedFile, dataUrl } = await compressImage(file);
+        if (dataUrl) {
+          if (preview) {
+            preview.src = dataUrl;
+            preview.style.display = 'block';
+          }
+          if (targetInput) targetInput.value = dataUrl;
+        }
+
+        const driveUrl = await uploadFileToGoogleDrive(compressedFile, "photos");
+        if (driveUrl) {
+          if (targetInput) targetInput.value = driveUrl;
+          if (preview) preview.src = driveUrl;
+        }
       } catch (e) {
         console.warn("Image upload error:", e);
       }
     }
   },
 
-  async handleFileUpload(inputEl, targetInputId, labelId) {
+  async handleFileUpload(inputEl, targetInputId, labelId, category = "notes", targetClass = "") {
     if (inputEl.files && inputEl.files[0]) {
       const file = inputEl.files[0];
       const labelEl = document.getElementById(labelId);
@@ -79,7 +85,11 @@ const TeacherPanel = {
         labelEl.innerHTML = `<i class="fa-solid fa-spinner fa-spin" style="color: var(--board-navy);"></i> Uploading <strong>${file.name}</strong> to Google Drive...`;
       }
       try {
-        const url = await uploadFileToGoogleDrive(file, "documents");
+        if (!targetClass) {
+          const classSelect = document.getElementById('materialClass') || document.getElementById('examClass') || document.getElementById('noteClass');
+          if (classSelect) targetClass = classSelect.value;
+        }
+        const url = await uploadFileToGoogleDrive(file, category, targetClass);
         const targetInput = document.getElementById(targetInputId);
         if (targetInput) targetInput.value = url;
         if (labelEl) {
@@ -2030,9 +2040,11 @@ const TeacherPanel = {
           </div>
         </div>
 
-        <button type="submit" class="btn-primary" style="color: #ffffff !important; background: var(--board-navy); width: 100%;">
-          <i class="fa-solid fa-paper-plane"></i> Publish Sunday Exam
-        </button>
+        <div style="margin-top: 1.5rem; margin-bottom: 3rem; padding-bottom: 1.5rem;">
+          <button type="submit" class="btn-primary" style="color: #ffffff !important; background: var(--board-navy); width: 100%; padding: 0.95rem; font-size: 1.05rem; font-weight: 700; border-radius: 12px; box-shadow: 0 4px 15px rgba(13,43,107,0.3);">
+            <i class="fa-solid fa-paper-plane"></i> Publish Sunday Exam
+          </button>
+        </div>
       </form>
     `);
   },
